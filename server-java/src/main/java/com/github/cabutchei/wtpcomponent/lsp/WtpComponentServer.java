@@ -3,8 +3,8 @@ package com.github.cabutchei.wtpcomponent.lsp;
 
 
 
-import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
@@ -12,9 +12,9 @@ import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.*;
 
-import com.github.cabutchei.wtpcomponent.lsp.ComponentEndpoints.MappingDto;
 import com.github.cabutchei.wtpcomponent.lsp.model.ComponentModel;
-import com.github.cabutchei.wtpcomponent.lsp.xml.ComponentXml;
+import com.github.cabutchei.wtpcomponent.lsp.wtp.EclipseWorkspaceManager;
+import com.github.cabutchei.wtpcomponent.lsp.wtp.StructureEditComponentBackend;
 
 
 
@@ -22,7 +22,8 @@ import com.github.cabutchei.wtpcomponent.lsp.xml.ComponentXml;
 public class WtpComponentServer implements LanguageServer, LanguageClientAware, ComponentEndpoints {
 
     private LanguageClient client;
-    private final ComponentService service = new ComponentService();
+    private final EclipseWorkspaceManager workspaceManager = new EclipseWorkspaceManager();
+    private final ComponentService service = new ComponentService(new StructureEditComponentBackend(workspaceManager));
 
     @Override
     public void connect(LanguageClient client) {
@@ -31,6 +32,8 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
 
     @Override
     public CompletableFuture<InitializeResult> initialize(InitializeParams params) {
+        bootstrapWorkspace(params);
+
         ServerCapabilities caps = new ServerCapabilities();
         caps.setTextDocumentSync(TextDocumentSyncKind.Incremental);
         caps.setCodeActionProvider(true);
@@ -126,7 +129,7 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
     // binder in lsp4j: we can use launcher.getRemoteProxy on client side; for server we can expose additional endpoints via request manager in future.
 
     private void validate(String uri, String text) {
-        var result = service.validate(URI.create(uri), text);
+        var result = service.validate(uriOf(uri), text);
         publishDiagnostics(uri, result);
     }
 
@@ -137,58 +140,47 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
     @Override
     public CompletableFuture<ListResult> listMappings(ListParams params) {
         return CompletableFuture.supplyAsync(() -> {
-        // var xml = fileLoader.read(p.uri);               // load text
-        ComponentModel model;
-        try {
-            model = ComponentXml.parse(params.text);
-            var result = new ListResult();
-            result.mappings = model.getMappings().stream().map(m -> {
-                var dto = new MappingDto();
-                dto.source = m.getSource();
-                dto.deployPath = m.getDeployPath();
-                return dto;
-            }).toList();
-            return result;
-        } catch (IOException e) {
-            // TODO: Handle parse error
-            e.printStackTrace();
-        }
-
-        return null;
+            try {
+                ComponentModel model = service.loadComponent(uriOf(params.uri), params.text);
+                var result = new ListResult();
+                result.mappings = model.getMappings().stream().map(m -> {
+                    var dto = new MappingDto();
+                    dto.source = m.getSource();
+                    dto.deployPath = m.getDeployPath();
+                    return dto;
+                }).toList();
+                return result;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return null;
+            }
+        });
     }
-    );
-}
 
     @Override
     public CompletableFuture<AddResult> addMapping(AddParams params) {
         return CompletableFuture.supplyAsync(() -> {
-        // var xml = fileLoader.read(params.uri);
-        var xml = params.text;
-        String updated;
-        try {
-            updated = ComponentXml.addMapping(xml, params.source, params.deployPath); // you implement this XML edit
-            // Build a WorkspaceEdit to replace the whole file (simple MVP).
-            // Later, compute a minimal range edit.
-            var edit = new org.eclipse.lsp4j.WorkspaceEdit();
-            var change = new org.eclipse.lsp4j.TextEdit(
-                fullDocumentRange(xml),                 // a helper that returns (0,0)→(∞,∞)
-                updated
-            );
-            edit.setChanges(java.util.Map.of(params.uri, java.util.List.of(change)));
-    
-            var r = new AddResult();
-            r.applied = true;
-            r.edit = edit;
-            // Server-side: best practice is to ask client to apply the edit:
-            client.applyEdit(new org.eclipse.lsp4j.ApplyWorkspaceEditParams(edit));
-            return r;
-        } catch (IOException e) {
-            // TODO: Handle parse error
-            e.printStackTrace();
-        }
-        return null;
-    });
-}
+            try {
+                String updated = service.addMapping(uriOf(params.uri), params.text, params.source, params.deployPath);
+                String original = params.text != null ? params.text : updated;
+                var edit = new org.eclipse.lsp4j.WorkspaceEdit();
+                var change = new org.eclipse.lsp4j.TextEdit(
+                    fullDocumentRange(original),
+                    updated
+                );
+                edit.setChanges(java.util.Map.of(params.uri, java.util.List.of(change)));
+
+                var r = new AddResult();
+                r.applied = true;
+                r.edit = edit;
+                client.applyEdit(new org.eclipse.lsp4j.ApplyWorkspaceEditParams(edit));
+                return r;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return null;
+            }
+        });
+    }
 
     private org.eclipse.lsp4j.Range fullDocumentRange(String text) {
         // naive: count lines, make end large enough
@@ -196,4 +188,37 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
         return new org.eclipse.lsp4j.Range(new org.eclipse.lsp4j.Position(0,0), new org.eclipse.lsp4j.Position(lines+1, 0));
   }
 
+    private void bootstrapWorkspace(InitializeParams params) {
+        Set<Path> roots = new LinkedHashSet<>();
+        if (params.getWorkspaceFolders() != null) {
+            params.getWorkspaceFolders().forEach(folder -> pathFromUri(folder.getUri()).ifPresent(roots::add));
+        }
+        if (params.getRootUri() != null) {
+            pathFromUri(params.getRootUri()).ifPresent(roots::add);
+        }
+        if (params.getRootPath() != null) {
+            roots.add(Path.of(params.getRootPath()));
+        }
+        roots.forEach(workspaceManager::importProjects);
+    }
+
+    private static Optional<Path> pathFromUri(String uri) {
+        if (uri == null || uri.isBlank()) return Optional.empty();
+        try {
+            URI asUri = URI.create(uri);
+            if (!"file".equalsIgnoreCase(asUri.getScheme())) return Optional.empty();
+            return Optional.of(Path.of(asUri));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private static URI uriOf(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return URI.create(raw);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
 }

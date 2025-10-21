@@ -1,0 +1,25 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: WTP Component Language Server
+Bundle-SymbolicName: com.github.cabutchei.wtpcomponent.ls;singleton:=true
+Bundle-Version: 0.1.0.qualifier
+Bundle-Vendor: GitHub
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Bundle-ActivationPolicy: lazy
+Bundle-ClassPath: .,
+ lib/org.eclipse.core.runtime_3.33.0.v20250206-0919.jar,
+ lib/org.eclipse.core.resources_3.11.0.v20160503-1608.jar,
+ lib/org.eclipse.equinox.common_3.20.0.v20250129-1348.jar,
+ lib/org.eclipse.equinox.app_1.7.300.v20250130-0528.jar,
+ lib/org.eclipse.emf.common_2.12.0.v20160420-0247.jar,
+ lib/org.eclipse.wst.common.core_1.2.0.v200908251833.jar,
+ lib/org.eclipse.wst.common.modulecore_1.2.401.v201408132036.jar,
+ lib/org.eclipse.wst.common.emf_1.2.800.v202503020719.jar,
+ lib/org.eclipse.wst.xml.core_1.2.900.v202405130132.jar,
+ lib/org.eclipse.jst.j2ee_1.1.850.v201506041749.jar,
+ lib/org.eclipse.jst.j2ee.core_1.3.200.v201505041449.jar
+Export-Package: com.github.cabutchei.wtpcomponent.lsp,
+ com.github.cabutchei.wtpcomponent.lsp.app,
+ com.github.cabutchei.wtpcomponent.lsp.model,
+ com.github.cabutchei.wtpcomponent.lsp.wtp,
+ com.github.cabutchei.wtpcomponent.lsp.xml
