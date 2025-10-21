@@ -1,11 +1,21 @@
 package com.github.cabutchei.wtpcomponent.lsp;
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.net.URI;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
 import com.github.cabutchei.wtpcomponent.lsp.model.*;
 import com.github.cabutchei.wtpcomponent.lsp.xml.ComponentXml;
 
@@ -14,9 +24,13 @@ import com.github.cabutchei.wtpcomponent.lsp.xml.ComponentXml;
 
 public class ComponentService {
     public List<Diagnostic> validate(URI uri, String text) {
+        SyntaxCheckResult syntax = syntaxDiagnostics(text);
+        if (syntax.hasErrors) {
+            return syntax.diagnostics;
+        }
+        List<Diagnostic> out = new ArrayList<>(syntax.diagnostics);
         try {
             ComponentModel m = ComponentXml.parse(text);
-            List<Diagnostic> out = new ArrayList<>();
             // basic checks
             for (Mapping map : m.getMappings()) {
                 if (map.getSource() == null || map.getSource().isEmpty())
@@ -24,11 +38,11 @@ public class ComponentService {
                 if (map.getDeployPath() == null)
                     out.add(diag("Missing deploy-path", 1, 1));
             }
-            // TODO: duplicate mapping detection, path existence (via client
-            // workspace/requests)
+            // TODO: duplicate mapping detection, path existence (via client workspace/requests)
             return out;
         } catch (Exception e) {
-            return List.of(diag("Invalid component XML: " + e.getMessage(), 1, 1));
+            out.add(diag("Invalid component XML: " + e.getMessage(), 1, 1, DiagnosticSeverity.Error));
+            return out;
         }
     }
 
@@ -61,10 +75,16 @@ public class ComponentService {
     }
 
     private static Diagnostic diag(String msg, int line, int col) {
+        return diag(msg, line, col, DiagnosticSeverity.Warning);
+    }
+
+    private static Diagnostic diag(String msg, int line, int col, DiagnosticSeverity severity) {
         Diagnostic d = new Diagnostic();
         d.setMessage(msg);
-        d.setSeverity(DiagnosticSeverity.Warning);
-        d.setRange(new Range(new Position(line, col), new Position(line, col + 1)));
+        d.setSeverity(severity);
+        int safeLine = Math.max(line, 0);
+        int safeCol = Math.max(col, 0);
+        d.setRange(new Range(new Position(safeLine, safeCol), new Position(safeLine, safeCol + 1)));
         return d;
     }
 
@@ -179,6 +199,47 @@ public class ComponentService {
             if (child != null) out.add(child);
         }
         return out;
+    }
+
+    private SyntaxCheckResult syntaxDiagnostics(String text) {
+        if (text == null || text.isBlank()) {
+            return SyntaxCheckResult.empty();
+        }
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        configureFactory(factory);
+        DocumentBuilder builder;
+        try {
+            builder = factory.newDocumentBuilder();
+        } catch (ParserConfigurationException e) {
+            Diagnostic d = diag("XML parser configuration error: " + e.getMessage(), 0, 0, DiagnosticSeverity.Error);
+            return new SyntaxCheckResult(List.of(d), true);
+        }
+        CollectingErrorHandler handler = new CollectingErrorHandler(text);
+        builder.setErrorHandler(handler);
+        try {
+            builder.parse(new InputSource(new StringReader(text)));
+        } catch (SAXParseException e) {
+            if (!handler.hasErrors()) {
+                handler.record(e, DiagnosticSeverity.Error);
+            }
+        } catch (SAXException | IOException e) {
+            handler.record("Invalid component XML: " + e.getMessage(), DiagnosticSeverity.Error);
+        }
+        return handler.toResult();
+    }
+
+    private void configureFactory(DocumentBuilderFactory factory) {
+        factory.setNamespaceAware(true);
+        factory.setValidating(false);
+        factory.setExpandEntityReferences(false);
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        } catch (ParserConfigurationException ignored) {
+        }
+        try {
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        } catch (ParserConfigurationException ignored) {
+        }
     }
 
     private enum CompletionKind {
@@ -669,4 +730,87 @@ public class ComponentService {
             "<dependent-module handle=\"${1:module:/MyProject/MyDependentModule}\" archiveName=\"${2:dependency.jar}\" deploy-path=\"${3:/WEB-INF/lib}\" dependency-type=\"${4:uses}\" />"
         ))
     );
+
+    private static Range rangeFor(String text, int lineZeroBased, int colZeroBased) {
+        Position requested = new Position(Math.max(lineZeroBased, 0), Math.max(colZeroBased, 0));
+        int startOffset = TextDocumentUtils.offsetAt(text, requested);
+        int endOffset = Math.min(text.length(), startOffset + 1);
+        Position start = TextDocumentUtils.positionAt(text, startOffset);
+        Position end = TextDocumentUtils.positionAt(text, endOffset);
+        return new Range(start, end);
+    }
+
+    private static Diagnostic diagForParseException(SAXParseException e, String text, DiagnosticSeverity severity) {
+        int line = Math.max(e.getLineNumber() - 1, 0);
+        int col = Math.max(e.getColumnNumber() - 1, 0);
+        Range range = rangeFor(text, line, col);
+        Diagnostic d = new Diagnostic();
+        d.setMessage(e.getMessage());
+        d.setSeverity(severity);
+        d.setRange(range);
+        return d;
+    }
+
+    private static final class SyntaxCheckResult {
+        final List<Diagnostic> diagnostics;
+        final boolean hasErrors;
+
+        SyntaxCheckResult(List<Diagnostic> diagnostics, boolean hasErrors) {
+            this.diagnostics = diagnostics;
+            this.hasErrors = hasErrors;
+        }
+
+        static SyntaxCheckResult empty() {
+            return new SyntaxCheckResult(List.of(), false);
+        }
+    }
+
+    private static final class CollectingErrorHandler implements ErrorHandler {
+        private final String text;
+        private final List<Diagnostic> diagnostics = new ArrayList<>();
+        private boolean hasErrors;
+
+        CollectingErrorHandler(String text) {
+            this.text = text == null ? "" : text;
+        }
+
+        @Override
+        public void warning(SAXParseException exception) {
+            record(exception, DiagnosticSeverity.Warning);
+        }
+
+        @Override
+        public void error(SAXParseException exception) throws SAXException {
+            record(exception, DiagnosticSeverity.Error);
+            throw exception;
+        }
+
+        @Override
+        public void fatalError(SAXParseException exception) throws SAXException {
+            record(exception, DiagnosticSeverity.Error);
+            throw exception;
+        }
+
+        void record(SAXParseException exception, DiagnosticSeverity severity) {
+            diagnostics.add(diagForParseException(exception, text, severity));
+            if (severity == DiagnosticSeverity.Error) {
+                hasErrors = true;
+            }
+        }
+
+        void record(String message, DiagnosticSeverity severity) {
+            diagnostics.add(diag(message, 0, 0, severity));
+            if (severity == DiagnosticSeverity.Error) {
+                hasErrors = true;
+            }
+        }
+
+        boolean hasErrors() {
+            return hasErrors;
+        }
+
+        SyntaxCheckResult toResult() {
+            return new SyntaxCheckResult(List.copyOf(diagnostics), hasErrors);
+        }
+    }
 }
