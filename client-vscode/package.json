@@ -16,6 +16,22 @@
         "onCommand:wtp.addToDeploymentAssembly"
     ],
     "contributes": {
+        "languages": [
+            {
+                "id": "component",
+                "aliases": [
+                    "Component XML",
+                    "component"
+                ],
+                "extensions": [
+                    ".component"
+                ],
+                "filenames": [
+                    "org.eclipse.wst.common.component"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
         "configuration": {
             "title": "WTP Component Language Server",
             "properties": {

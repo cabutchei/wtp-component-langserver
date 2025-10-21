@@ -1,50 +1,45 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, type DocumentSelector } from 'vscode-languageclient/node';
 import { Trace } from 'vscode-jsonrpc';
-
-
-
 
 let client: LanguageClient;
 
 export async function activate(ctx: vscode.ExtensionContext) {
-
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-    return vscode.window.showWarningMessage("No active editor");
-    }
-    const docUri = editor.document.uri;   // <-- HERE
-
     const jar = vscode.workspace.getConfiguration('wtp').get<string>('serverJar');
-    const serverJar = jar && jar.length > 0 ? jar: path.join(ctx.extensionPath, "server", "wtp-component-ls.jar");
-    // const serverJar = jar || path.join(ctx.extensionPath, 'server', 'wtp-component-ls.jar');
+    const serverJar = jar && jar.length > 0 ? jar : path.join(ctx.extensionPath, 'server', 'wtp-component-ls.jar');
 
     const serverOptions: ServerOptions = {
         run: { command: 'java', args: ['-jar', serverJar], transport: TransportKind.stdio },
         debug: { command: 'java', args: ['-jar', serverJar], transport: TransportKind.stdio }
     };
 
+    const documentSelector: DocumentSelector = [
+        { scheme: 'file', language: 'component' },
+        { scheme: 'file', language: 'xml', pattern: '**/{org.eclipse.wst.common.component,*.component}' }
+    ];
+
+    const traceOutputChannel = vscode.window.createOutputChannel('WTP LS Trace');
+
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ language: 'xml' }],
-        synchronize: { fileEvents: vscode.workspace.createFileSystemWatcher('**/{org.eclipse.wst.common.component,*.component}') }
+        documentSelector,
+        synchronize: { fileEvents: vscode.workspace.createFileSystemWatcher('**/{org.eclipse.wst.common.component,*.component}') },
+        traceOutputChannel
     };
 
     client = new LanguageClient('wtpComponentLs', 'WTP Component Language Server', serverOptions, clientOptions);
     await client.start();
-    client.setTrace(Trace.Verbose); // force verbose trace
-    clientOptions.traceOutputChannel = vscode.window.createOutputChannel('WTP LS Trace');
+    client.setTrace(Trace.Verbose);
+
     ctx.subscriptions.push(
         {
             dispose: () => { client.stop(); }
         }
     );
 
-    // Commands
     ctx.subscriptions.push(
         vscode.commands.registerCommand('wtp.configureDeploymentAssembly', async (uri: vscode.Uri) => {
-            const doc = uri ?? editor?.document.uri;
-            // const doc = await pickComponentFile();
+            const doc = uri ?? vscode.window.activeTextEditor?.document.uri;
             if (!doc) return;
             const res = await client.sendRequest<any>('component/listMappings', { uri: doc.toString() });
             await showMappingQuickPick(res?.mappings || [], doc.toString());
@@ -65,21 +60,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
             if (res?.applied) vscode.window.showInformationMessage('Mapping added.');
         })
     );
-
-    // list mappings
-    const res = await client.sendRequest<{ mappings: { source: string; deployPath: string }[] }>(
-        'component/listMappings', { uri: docUri.toString() }
-    );
-
-    // add mapping
-    const addRes = await client.sendRequest<{ applied: boolean; edit?: import('vscode').WorkspaceEdit }>(
-        'component/addMapping',
-        { uri: docUri.toString(), source: '/src', deployPath: '/WEB-INF/classes' }
-    );
-
-    // If the server returns a WorkspaceEdit, you can also apply it from the client (optional):
-    // await vscode.workspace.applyEdit(addRes.edit);    
-    }
+}
 
 export function deactivate(): Thenable<void> | undefined {
     return client?.stop();

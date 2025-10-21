@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
@@ -23,6 +24,7 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
 
     private LanguageClient client;
     private final ComponentService service = new ComponentService();
+    private final Map<String, String> documents = new ConcurrentHashMap<>();
 
     @Override
     public void connect(LanguageClient client) {
@@ -35,6 +37,7 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
         caps.setTextDocumentSync(TextDocumentSyncKind.Incremental);
         caps.setCodeActionProvider(true);
         caps.setDocumentFormattingProvider(true);
+        caps.setCompletionProvider(new CompletionOptions(true, List.of("<", "/", "\"", "'")));
         return CompletableFuture.completedFuture(new InitializeResult(caps));
     }
 
@@ -51,17 +54,28 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
     private final TextDocumentService text = new TextDocumentService() {
         @Override
         public void didOpen(DidOpenTextDocumentParams p) {
-            validate(p.getTextDocument().getUri(), p.getTextDocument().getText());
+            String uri = p.getTextDocument().getUri();
+            String text = p.getTextDocument().getText();
+            documents.put(uri, text);
+            validate(uri, text);
         }
 
         @Override
         public void didChange(DidChangeTextDocumentParams p) {
-            String text = p.getContentChanges().isEmpty() ? null : p.getContentChanges().get(0).getText();
-            if (text != null) validate(p.getTextDocument().getUri(), text);
+            String uri = p.getTextDocument().getUri();
+            String current = documents.getOrDefault(uri, "");
+            if (!p.getContentChanges().isEmpty()) {
+                for (TextDocumentContentChangeEvent change : p.getContentChanges()) {
+                    current = TextDocumentUtils.applyChange(current, change);
+                }
+                documents.put(uri, current);
+                validate(uri, current);
+            }
         }
 
         @Override
         public void didClose(DidCloseTextDocumentParams p) {
+            documents.remove(p.getTextDocument().getUri());
             publishDiagnostics(p.getTextDocument().getUri(), List.of());
         }
 
@@ -84,6 +98,14 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
         public CompletableFuture<List<? extends TextEdit>> formatting(DocumentFormattingParams p) {
             // Optional: pretty-print XML later
             return CompletableFuture.completedFuture(List.of());
+        }
+
+        @Override
+        public CompletableFuture<Either<List<CompletionItem>, CompletionList>> completion(CompletionParams params) {
+            String uri = params.getTextDocument().getUri();
+            String text = documents.get(uri);
+            List<CompletionItem> items = service.completions(params, text);
+            return CompletableFuture.completedFuture(Either.forLeft(items));
         }
     };
 
@@ -126,7 +148,9 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
     // binder in lsp4j: we can use launcher.getRemoteProxy on client side; for server we can expose additional endpoints via request manager in future.
 
     private void validate(String uri, String text) {
-        var result = service.validate(URI.create(uri), text);
+        String content = text != null ? text : documents.get(uri);
+        if (content == null) return;
+        var result = service.validate(URI.create(uri), content);
         publishDiagnostics(uri, result);
     }
 
