@@ -1,0 +1,70 @@
+{
+    "name": "wtp-component",
+    "displayName": "WTP Component Language Support",
+    "publisher": "yourpub",
+    "version": "0.1.0",
+    "engines": {
+        "vscode": "^1.90.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onLanguage:xml",
+        "onLanguage:component",
+        "onCommand:wtp.configureDeploymentAssembly",
+        "onCommand:wtp.addToDeploymentAssembly"
+    ],
+    "contributes": {
+        "configuration": {
+            "title": "WTP Component Language Server",
+            "properties": {
+            "wtp.serverJar": {
+                "type": "string",
+                "default": "wtp-component-ls-0.1.0-SNAPSHOT.jar",
+                "description": "Path to the wtp-component-ls.jar to be launched as the language server."
+            }
+        }
+        },
+        "commands": [
+            {
+                "command": "wtp.configureDeploymentAssembly",
+                "title": "Configure Deployment Assembly"
+            },
+            {
+                "command": "wtp.addToDeploymentAssembly",
+                "title": "Add to Deployment Assembly"
+            }
+        ],
+        "menus": {
+            "explorer/context": [
+                {
+                    "command": "wtp.addToDeploymentAssembly",
+                    "when": "resourceExtname =~ /(java|xml|jsp|js|css|png|jpg)$/",
+                    "group": "navigation@5"
+                },
+                {
+                    "command": "wtp.configureDeploymentAssembly",
+                    "when": "resourceFilename =~ /(org.eclipse.wst.common.component|.*\\.component)/",
+                    "group": "navigation@6"
+                }
+            ]
+        }
+    },
+    "main": "./out/extension.js",
+    "scripts": {
+        "vscode:prepublish": "npm run build",
+        "build": "tsc -p ./",
+        "watch": "tsc -w -p ./",
+        "package": "vsce package"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.12.7",
+        "typescript": "^5.9.3",
+        "@types/vscode": "^1.90.0",
+        "vsce": "^2.10.0"
+    }
+}
