@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<product  name="WTP Component Language Server"
+          uid="com.github.cabutchei.wtpcomponent.lsp.product"
+          id="com.github.cabutchei.wtpcomponent.lsp.product"
+          application="com.github.cabutchei.wtpcomponent.lsp.app"
+          version="0.1.0.qualifier"
+          useFeatures="true"
+          includeLaunchers="true">
+
+  <configIni use="default"/>
+  <launcherArgs>
+    <programArgs>-nosplash</programArgs>
+    <vmArgs>-Xms256m -Xmx1024m</vmArgs>
+  </launcherArgs>
+
+  <features>
+    <feature id="com.github.cabutchei.wtpcomponent.lsp.feature" version="0.1.0.qualifier"/>
+    <feature id="org.eclipse.rcp"/>
+  </features>
+
+  <launcher>
+    <macosx/>
+  </launcher>
+</product>

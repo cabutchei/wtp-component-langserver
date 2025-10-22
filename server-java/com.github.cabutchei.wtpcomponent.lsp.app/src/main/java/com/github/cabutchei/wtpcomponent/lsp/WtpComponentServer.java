@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
+import org.eclipse.core.resources.IProject;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.*;
@@ -199,7 +200,11 @@ public class WtpComponentServer implements LanguageServer, LanguageClientAware, 
         if (params.getRootPath() != null) {
             roots.add(Path.of(params.getRootPath()));
         }
-        roots.forEach(workspaceManager::importProjects);
+        Set<IProject> projects = new LinkedHashSet<>();
+        roots.forEach(root -> projects.addAll(workspaceManager.importProjects(root)));
+        if (!projects.isEmpty()) {
+            service.refreshWorkspaceComponents(projects);
+        }
     }
 
     private static Optional<Path> pathFromUri(String uri) {

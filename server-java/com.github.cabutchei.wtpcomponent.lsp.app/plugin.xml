@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+  <extension
+      point="org.eclipse.core.runtime.applications"
+      id="com.github.cabutchei.wtpcomponent.lsp.app">
+    <application>
+      <run
+          class="com.github.cabutchei.wtpcomponent.lsp.app.WtpComponentApplication">
+      </run>
+    </application>
+  </extension>
+  <extension
+      id="com.github.cabutchei.wtpcomponent.lsp.product"
+      point="org.eclipse.core.runtime-products">
+      <product
+          application="com.github.cabutchei.wtpcomponent.lsp.app"
+          name="who-gives-a-fuck">
+    </product>
+</extension>
+</plugin>

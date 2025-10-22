@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+  <!-- <bundle id="com.github.cabutchei.wtpcomponent.lsp" version="0.0.0"> -->
+  <feature url="features/com.github.cabutchei.wtpcomponent.lsp.feature_1.0.0.qualifier.jar"
+           id="com.github.cabutchei.wtpcomponent.lsp.feature"
+           version="0.1.0.qualifier">
+    <category name="com.github.cabutchei.wtpcomponent"/>
+    </feature>
+  <!-- </bundle> -->
+  <category-def name="com.github.cabutchei.wtpcomponent" label="WTP Component Language Server"/>
+</site>

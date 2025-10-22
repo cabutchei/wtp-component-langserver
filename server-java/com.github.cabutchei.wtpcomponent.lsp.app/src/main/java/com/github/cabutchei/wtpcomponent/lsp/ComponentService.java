@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,6 +23,7 @@ import com.github.cabutchei.wtpcomponent.lsp.model.ComponentModel;
 import com.github.cabutchei.wtpcomponent.lsp.model.Mapping;
 import com.github.cabutchei.wtpcomponent.lsp.wtp.StructureEditComponentBackend;
 import com.github.cabutchei.wtpcomponent.lsp.xml.ComponentXml;
+import org.eclipse.core.resources.IProject;
 
 public class ComponentService {
 
@@ -29,6 +31,12 @@ public class ComponentService {
 
     public ComponentService(StructureEditComponentBackend backend) {
         this.backend = backend;
+    }
+
+    void refreshWorkspaceComponents(Collection<IProject> projects) {
+        if (backend != null) {
+            backend.refreshComponents(projects);
+        }
     }
 
     public List<Diagnostic> validate(URI uri, String text) {
