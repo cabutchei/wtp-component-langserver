@@ -1,0 +1,50 @@
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.github.cabutchei.wtpcomponent</groupId>
+  <version>0.1.0-SNAPSHOT</version>
+  <artifactId>com.github.cabutchei.wtpcomponent.lsp.app</artifactId>
+  <packaging>pom</packaging>
+    <dependencies>
+        <dependency>
+            <groupId>org.eclipse.lsp4j</groupId>
+            <artifactId>org.eclipse.lsp4j</artifactId>
+            <version>0.22.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.lsp4j</groupId>
+            <artifactId>org.eclipse.lsp4j.jsonrpc</artifactId>
+            <version>0.22.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+    </dependencies>
+    <!-- ... other project elements ... -->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.9.0</version> <!-- Use the latest version -->
+                <executions>
+                    <execution>
+                        <id>copy-dependencies</id>
+                        <phase>package</phase> <!-- or any other suitable phase -->
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <overWriteReleases>false</overWriteReleases>
+                            <overWriteSnapshots>false</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+    <!-- ... other project elements ... -->
+</project>

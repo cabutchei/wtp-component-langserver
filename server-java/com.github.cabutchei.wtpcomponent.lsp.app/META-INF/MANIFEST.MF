@@ -19,7 +19,8 @@ Bundle-ClassPath: .,
  lib/org.eclipse.jst.j2ee.core_1.3.200.v201505041449.jar,
  lib/org.eclipse.lsp4j-0.22.0.jar,
  lib/org.eclipse.lsp4j.jsonrpc-0.22.0.jar,
- lib/jsoup-1.17.2.jar
+ lib/jsoup-1.17.2.jar,
+ lib/gson-2.10.1.jar
 Export-Package: com.github.cabutchei.wtpcomponent.lsp,
  com.github.cabutchei.wtpcomponent.lsp.app,
  com.github.cabutchei.wtpcomponent.lsp.model,
