@@ -5,7 +5,7 @@ Bundle-SymbolicName: com.github.cabutchei.wtpcomponent.lsp.app;singleton:=true
 Bundle-Version: 0.1.0.qualifier
 Bundle-Vendor: GitHub
 Bundle-RequiredExecutionEnvironment: JavaSE-17
-Require-Bundle: org.eclipse.core.runtime,org.eclipse.equinox.app
+Require-Bundle: org.eclipse.core.runtime,org.eclipse.equinox.app,org.eclipse.core.resources
 Bundle-ClassPath: .,
  lib/org.eclipse.core.runtime_3.33.0.v20250206-0919.jar,
  lib/org.eclipse.core.resources_3.11.0.v20160503-1608.jar,

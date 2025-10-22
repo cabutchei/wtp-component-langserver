@@ -11,6 +11,7 @@
   <configurations>
     <!-- Core runtime must be started early -->
     <plugin id="org.eclipse.core.runtime" autoStart="true" startLevel="2" />
+    <plugin id="org.apache.felix.scr" autoStart="true" startLevel="2" />
   </configurations>
   <launcherArgs>
     <programArgs>-nosplash</programArgs>

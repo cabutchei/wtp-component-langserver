@@ -13,4 +13,13 @@
       install-size="0"
       version="0.0.0"
       unpack="false"/>
+  <plugin id="org.apache.felix.scr" version="2.2.12"/>
+  <plugin id="org.osgi.util.function"/>
+  <plugin id="org.osgi.util.promise"/>
+  <plugin id="com.sun.jna"/>
+  <plugin id="com.sun.jna.platform"/>
+  <plugin id="org.eclipse.core.expressions"/>
+  <plugin id="org.eclipse.core.filesystem"/>
+  <plugin id="org.eclipse.core.filesystem.macosx"/>
+  <plugin id="org.eclipse.core.resources"/>
 </feature>
