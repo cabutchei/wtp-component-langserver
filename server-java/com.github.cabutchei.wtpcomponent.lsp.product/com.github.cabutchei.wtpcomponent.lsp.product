@@ -1,24 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<product  name="WTP Component Language Server"
-          uid="com.github.cabutchei.wtpcomponent.lsp.product"
-          id="com.github.cabutchei.wtpcomponent.lsp.product"
-          application="com.github.cabutchei.wtpcomponent.lsp.app"
-          version="0.1.0.qualifier"
-          useFeatures="true"
-          includeLaunchers="true">
+<product name="WTP Component Language Server"
+  uid="com.github.cabutchei.wtpcomponent.lsp.product"
+  id="com.github.cabutchei.wtpcomponent.lsp.product"
+  application="com.github.cabutchei.wtpcomponent.lsp.app"
+  version="0.1.0.qualifier"
+  useFeatures="true"
+  includeLaunchers="true">
 
-  <configIni use="default"/>
+  <configIni use="default" />
+  <configurations>
+    <!-- Core runtime must be started early -->
+    <plugin id="org.eclipse.core.runtime" autoStart="true" startLevel="2" />
+  </configurations>
   <launcherArgs>
     <programArgs>-nosplash</programArgs>
     <vmArgs>-Xms256m -Xmx1024m</vmArgs>
   </launcherArgs>
 
   <features>
-    <feature id="com.github.cabutchei.wtpcomponent.lsp.feature" version="0.1.0.qualifier"/>
-    <feature id="org.eclipse.rcp"/>
+    <feature id="com.github.cabutchei.wtpcomponent.lsp.feature" version="0.1.0.qualifier" />
   </features>
 
   <launcher>
-    <macosx/>
+    <macosx />
   </launcher>
 </product>
