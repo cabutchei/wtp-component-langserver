@@ -5,22 +5,39 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
+import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.wst.common.componentcore.ComponentCore;
 import org.eclipse.wst.common.componentcore.internal.ComponentResource;
-import org.eclipse.wst.common.componentcore.internal.ComponentcoreFactory;
 import org.eclipse.wst.common.componentcore.internal.StructureEdit;
 import org.eclipse.wst.common.componentcore.internal.WorkbenchComponent;
+import org.eclipse.wst.common.componentcore.resources.IVirtualComponent;
+import org.eclipse.wst.common.componentcore.resources.IVirtualContainer;
+import org.eclipse.wst.common.componentcore.resources.IVirtualFolder;
+import org.eclipse.wst.common.componentcore.resources.IVirtualReference;
+import org.eclipse.wst.common.componentcore.resources.IVirtualResource;
+import org.eclipse.wst.common.frameworks.datamodel.DataModelFactory;
+import org.eclipse.wst.common.frameworks.datamodel.IDataModel;
+import org.eclipse.wst.common.frameworks.datamodel.IDataModelOperation;
 
 import com.github.cabutchei.wtpcomponent.lsp.model.ComponentModel;
 import com.github.cabutchei.wtpcomponent.lsp.model.Mapping;
@@ -32,6 +49,7 @@ import com.github.cabutchei.wtpcomponent.lsp.model.Mapping;
 public final class StructureEditComponentBackend {
 
     private static final Logger LOG = Logger.getLogger(StructureEditComponentBackend.class.getName());
+    private static final String WB_RESOURCE_TAG = "wb-resource";
 
     private final EclipseWorkspaceManager workspaceManager;
     private final Map<Path, ComponentModel> cache = new ConcurrentHashMap<>();
@@ -41,55 +59,51 @@ public final class StructureEditComponentBackend {
     }
 
     public void refreshComponents(Collection<IProject> projects) {
+        LOG.info("Refreshing components for " + (projects == null ? 0 : projects.size()) + " projects.");
         if (projects == null) return;
         for (IProject project : projects) {
             if (project == null || !project.isAccessible()) continue;
             locateComponentFile(project).ifPresent(componentPath -> {
-                StructureEdit edit = StructureEdit.getStructureEditForRead(project);
-                if (edit == null) return;
-                try {
-                    prepare(edit);
-                    WorkbenchComponent component = primaryComponent(edit);
-                    if (component != null) {
-                        cacheComponent(componentPath, component);
-                    }
-                } finally {
-                    edit.dispose();
+                Path key = normalize(componentPath);
+                Optional<ComponentModel> model = buildModel(project);
+                if (model.isPresent()) {
+                    cache.put(key, model.get());
+                } else {
+                    cache.remove(key);
                 }
             });
         }
     }
 
     public Optional<ComponentModel> readComponent(URI componentUri) {
+        LOG.info("READ COMPONENT " + componentUri);
         Path path = toPath(componentUri);
         if (path == null) return Optional.empty();
         Path key = normalize(path);
-
         ComponentModel cached = cache.get(key);
         if (cached != null) {
             return Optional.of(copyOf(cached));
         }
-
         Optional<IFile> maybeFile = workspaceManager.findFile(path);
         if (maybeFile.isEmpty()) return Optional.empty();
-
         IProject project = maybeFile.get().getProject();
         if (project == null || !project.isAccessible()) return Optional.empty();
 
-        StructureEdit edit = StructureEdit.getStructureEditForRead(project);
-        if (edit == null) return Optional.empty();
+        Optional<ComponentModel> model = buildModel(project);
+        model.ifPresent(m -> cache.put(key, m));
+        return model.map(StructureEditComponentBackend::copyOf);
+    }
 
-        try {
-            prepare(edit);
-            WorkbenchComponent component = primaryComponent(edit);
-            if (component == null) return Optional.empty();
-
-            ComponentModel model = modelFromComponent(component);
-            cache.put(key, model);
-            return Optional.of(copyOf(model));
-        } finally {
-            edit.dispose();
+    private Optional<ComponentModel> buildModel(IProject project) {
+        if (project == null || !project.isAccessible()) {
+            return Optional.empty();
         }
+        IVirtualComponent component = ComponentCore.createComponent(project);
+        if (component == null || !component.exists()) {
+            LOG.fine(() -> "No virtual component for project " + project.getName());
+            return Optional.empty();
+        }
+        return modelFromVirtualComponent(component);
     }
 
     public Optional<String> addMapping(URI componentUri, String source, String deployPath) {
@@ -99,41 +113,39 @@ public final class StructureEditComponentBackend {
         Optional<IFile> maybeFile = workspaceManager.findFile(path);
         if (maybeFile.isEmpty()) return Optional.empty();
 
-        IProject project = maybeFile.get().getProject();
+        IFile componentFile = maybeFile.get();
+        IProject project = componentFile.getProject();
         if (project == null || !project.isAccessible()) return Optional.empty();
 
-        StructureEdit edit = StructureEdit.getStructureEditForWrite(project);
-        if (edit == null) return Optional.empty();
+        IDataModel model = DataModelFactory.createDataModel(new ComponentMappingDataModelProvider());
+        model.setProperty(ComponentMappingDataModelProperties.COMPONENT_FILE, componentFile);
+        model.setProperty(ComponentMappingDataModelProperties.SOURCE_PATH, source);
+        model.setProperty(ComponentMappingDataModelProperties.DEPLOY_PATH, deployPath);
 
+        IDataModelOperation op = model.getDefaultOperation();
+        IStatus status;
         try {
-            prepare(edit);
-            WorkbenchComponent component = primaryComponent(edit);
-            if (component == null) return Optional.empty();
+            status = op.execute(new NullProgressMonitor(), null);
+        } catch (ExecutionException e) {
+            LOG.log(Level.WARNING, "Component mapping operation execution error", e);
+            return Optional.empty();
+        }
+        if (!status.isOK()) {
+            String message = "Component mapping operation failed: " + status.getMessage();
+            LOG.log(Level.WARNING, message, status.getException());
+            return Optional.empty();
+        }
 
-            if (hasMapping(component, source, deployPath)) {
-                return readFile(path);
-            }
-
-            ComponentResource resource = ComponentcoreFactory.eINSTANCE.createComponentResource();
-            if (source != null && !source.isBlank()) {
-                resource.setSourcePath(new org.eclipse.core.runtime.Path(source));
-            }
-            if (deployPath != null && !deployPath.isBlank()) {
-                resource.setRuntimePath(new org.eclipse.core.runtime.Path(deployPath));
-            }
-            component.getResources().add(resource);
-            edit.saveIfNecessary(null);
-            cacheComponent(path, component);
+        refreshComponentCache(project, path);
+        try {
             return readFile(path);
         } catch (IOException e) {
-            LOG.log(Level.WARNING, "Failed to update component file via StructureEdit: " + path, e);
+            LOG.log(Level.WARNING, "Failed to read updated component file: " + path, e);
             return Optional.empty();
-        } finally {
-            edit.dispose();
         }
     }
 
-    private static boolean hasMapping(WorkbenchComponent component, String source, String deploy) {
+    static boolean hasMapping(WorkbenchComponent component, String source, String deploy) {
         for (Object obj : component.getResources()) {
             if (obj instanceof ComponentResource resource) {
                 boolean sameSource = Objects.equals(optionalPath(resource.getSourcePath()), normalize(source));
@@ -146,23 +158,23 @@ public final class StructureEditComponentBackend {
         return false;
     }
 
-    private static String optionalPath(org.eclipse.core.runtime.IPath path) {
+    static String optionalPath(org.eclipse.core.runtime.IPath path) {
         if (path == null) return null;
         String value = path.toPortableString();
         return normalize(value);
     }
 
-    private static String normalize(String value) {
+    static String normalize(String value) {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private static Optional<String> readFile(Path path) throws IOException {
+    static Optional<String> readFile(Path path) throws IOException {
         return Optional.ofNullable(Files.exists(path) ? Files.readString(path, StandardCharsets.UTF_8) : null);
     }
 
-    private static Path toPath(URI uri) {
+    static Path toPath(URI uri) {
         if (uri == null) return null;
         try {
             if (!"file".equalsIgnoreCase(uri.getScheme())) return null;
@@ -173,7 +185,7 @@ public final class StructureEditComponentBackend {
         }
     }
 
-    private static void prepare(StructureEdit edit) {
+    static void prepare(StructureEdit edit) {
         try {
             edit.prepareProjectComponentsIfNecessary();
         } catch (Exception ex) {
@@ -181,7 +193,7 @@ public final class StructureEditComponentBackend {
         }
     }
 
-    private static WorkbenchComponent primaryComponent(StructureEdit edit) {
+    static WorkbenchComponent primaryComponent(StructureEdit edit) {
         WorkbenchComponent component = edit.getComponent();
         if (component != null) {
             return component;
@@ -193,22 +205,101 @@ public final class StructureEditComponentBackend {
         return edit.getFirstModule();
     }
 
-    private void cacheComponent(Path componentPath, WorkbenchComponent component) {
-        cache.put(normalize(componentPath), modelFromComponent(component));
+    private Optional<ComponentModel> modelFromVirtualComponent(IVirtualComponent component) {
+        if (component == null || !component.exists()) {
+            return Optional.empty();
+        }
+        ComponentModel model = new ComponentModel();
+        // collectComponentResources(component, model);
+        collectDependentModules(component, model);
+        return Optional.of(model);
     }
 
-    private static ComponentModel modelFromComponent(WorkbenchComponent component) {
-        ComponentModel model = new ComponentModel();
-        component.getResources().forEach(res -> {
-            if (res instanceof ComponentResource resource) {
-                if (!resourceExists(resource)) return;
-                String source = optionalPath(resource.getSourcePath());
-                String deploy = optionalPath(resource.getRuntimePath());
-                Mapping mapping = new Mapping("wb-resource", source, deploy);
-                model.getMappings().add(mapping);
+    private void collectComponentResources(IVirtualComponent component, ComponentModel model) {
+        IVirtualFolder root = component.getRootFolder();
+        if (root == null) return;
+
+        Set<ComponentResource> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        Deque<IVirtualContainer> queue = new ArrayDeque<>();
+        queue.add(root);
+
+        while (!queue.isEmpty()) {
+            IVirtualContainer container = queue.removeFirst();
+            try {
+                for (IVirtualResource resource : container.members()) {
+                    if (resource == null) continue;
+                    if (resource instanceof IVirtualContainer nested) {
+                        queue.addLast(nested);
+                    }
+                    ComponentResource componentResource = resource.getAdapter(ComponentResource.class);
+                    if (componentResource == null) continue;
+                    if (!seen.add(componentResource)) continue;
+
+                    String tag = normalize(componentResource.getTag());
+                    if (tag == null) {
+                        tag = WB_RESOURCE_TAG;
+                    }
+                    if (!WB_RESOURCE_TAG.equals(tag)) {
+                        continue;
+                    }
+                    if (!hasAccessibleBackingResource(resource)) {
+                        continue;
+                    }
+
+                    String source = optionalPath(componentResource.getSourcePath());
+                    String deploy = optionalPath(componentResource.getRuntimePath());
+                    if (source == null && deploy == null) {
+                        continue;
+                    }
+                    model.getMappings().add(new Mapping(tag, source, deploy));
+                }
+            } catch (CoreException e) {
+                LOG.log(Level.FINE, "Failed to enumerate virtual resources for component " + component.getName(), e);
             }
-        });
-        return model;
+        }
+    }
+
+    private void collectDependentModules(IVirtualComponent component, ComponentModel model) {
+        IVirtualReference[] references = component.getReferences();
+        if (references == null || references.length == 0) {
+            return;
+        }
+        for (IVirtualReference reference : references) {
+            if (reference == null) continue;
+            String deploy = optionalPath(reference.getRuntimePath());
+            String archive = normalize(reference.getArchiveName());
+            if (archive == null) {
+                IVirtualComponent child = reference.getReferencedComponent();
+                if (child != null) {
+                    IProject childProject = child.getProject();
+                    if (childProject != null && childProject.exists()) {
+                        archive = childProject.getName();
+                    } else {
+                        archive = normalize(child.getDeployedName());
+                        if (archive == null) {
+                            archive = child.getName();
+                        }
+                    }
+                }
+            }
+            if (archive == null && deploy == null) {
+                continue;
+            }
+            model.getMappings().add(new Mapping("dependent-module", archive, deploy));
+        }
+    }
+
+    private static boolean hasAccessibleBackingResource(IVirtualResource resource) {
+        IResource[] underlying = resource.getUnderlyingResources();
+        if (underlying == null || underlying.length == 0) {
+            return true;
+        }
+        for (IResource candidate : underlying) {
+            if (candidate != null && candidate.exists()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static ComponentModel copyOf(ComponentModel original) {
@@ -221,21 +312,6 @@ public final class StructureEditComponentBackend {
             copy.getMappings().add(m);
         }
         return copy;
-    }
-
-    private static boolean resourceExists(ComponentResource resource) {
-        if (resource == null) return false;
-        if (resource.getSourcePath() == null) {
-            // Allow entries without explicit source (e.g. dependent modules)
-            return true;
-        }
-        try {
-            IResource res = StructureEdit.getEclipseResource(resource);
-            return res != null && res.exists();
-        } catch (Exception ex) {
-            LOG.log(Level.FINEST, "Failed to resolve resource " + resource, ex);
-            return false;
-        }
     }
 
     private Optional<Path> locateComponentFile(IProject project) {
@@ -260,6 +336,16 @@ public final class StructureEditComponentBackend {
             LOG.log(Level.FINE, "Failed to locate component file for project " + project.getName(), e);
         }
         return Optional.empty();
+    }
+
+    private void refreshComponentCache(IProject project, Path componentPath) {
+        Path key = normalize(componentPath);
+        Optional<ComponentModel> model = buildModel(project);
+        if (model.isPresent()) {
+            cache.put(key, model.get());
+        } else {
+            cache.remove(key);
+        }
     }
 
     private static Path normalize(Path path) {

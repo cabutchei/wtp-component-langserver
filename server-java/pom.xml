@@ -59,5 +59,10 @@
       <layout>p2</layout>
       <url>https://download.eclipse.org/tools/orbit/downloads/drops/R20230531010532/repository</url>
     </repository>
+    <repository>
+      <id>eclipse-orbit-R20180606</id>
+      <layout>p2</layout>
+      <url>https://download.eclipse.org/tools/orbit/downloads/drops/R20180606145124/repository</url>
+    </repository>
   </repositories>
 </project>

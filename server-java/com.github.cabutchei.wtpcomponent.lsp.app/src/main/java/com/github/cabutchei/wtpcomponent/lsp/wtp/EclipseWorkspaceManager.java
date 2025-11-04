@@ -29,6 +29,26 @@ public final class EclipseWorkspaceManager {
 
     private static final Logger LOG = Logger.getLogger(EclipseWorkspaceManager.class.getName());
 
+    public List<IProject> getProjects() {
+        IWorkspace workspace = ResourcesPlugin.getWorkspace();
+        IWorkspaceRoot root = workspace.getRoot();
+        return List.of(root.getProjects());
+    }
+
+    public void deleteProjects() {
+        IWorkspace workspace = ResourcesPlugin.getWorkspace();
+        IWorkspaceRoot root = workspace.getRoot();
+            List.of(root.getProjects()).forEach(
+                p -> {
+                    try{
+                        p.delete(IResource.NEVER_DELETE_PROJECT_CONTENT, null);
+                    } catch (CoreException e) {
+                        LOG.log(Level.WARNING, "Failed to delete project " + p.getName(), e);
+                    }
+                }
+                );
+        }
+
     /**
      * Import every folder under {@code workspaceRoot} that contains a {@code .project}
      * descriptor into the Eclipse workspace.
@@ -60,6 +80,7 @@ public final class EclipseWorkspaceManager {
 
     private Optional<IProject> importProjectFile(IWorkspace workspace, IWorkspaceRoot root, Path projectFile, AtomicInteger counter) {
         IProjectDescription description;
+        LOG.info(org.eclipse.core.runtime.Path.fromOSString(projectFile.toString()).toString());
         try {
             description = workspace.loadProjectDescription(org.eclipse.core.runtime.Path.fromOSString(projectFile.toString()));
         } catch (CoreException e) {
