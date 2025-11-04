@@ -12,6 +12,7 @@
     "activationEvents": [
         "onLanguage:xml",
         "onLanguage:component",
+        "workspaceContains:**/org.eclipse.wst.common.component",
         "onCommand:wtp.configureDeploymentAssembly",
         "onCommand:wtp.addToDeploymentAssembly"
     ],
@@ -40,7 +41,7 @@
             "explorer/context": [
                 {
                     "command": "wtp.addToDeploymentAssembly",
-                    "when": "resourceExtname =~ /(java|xml|jsp|js|css|png|jpg)$/",
+                    "when": "explorerResourceIsFolder",
                     "group": "navigation@5"
                 },
                 {
